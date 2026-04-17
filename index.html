@@ -708,6 +708,23 @@ svg.leaflet-image-layer.leaflet-interactive path {
     .hdr-count{font-size:11px;color:rgba(255,255,255,0.5);margin-left:4px}
     .hdr-btn{width:32px;height:32px;border:none;background:rgba(255,255,255,0.12);border-radius:8px;cursor:pointer;font-size:15px;display:flex;align-items:center;justify-content:center}
     .search-wrap{position:relative;margin-bottom:10px}
+    /* 필터 한 줄 (라벨 + 칩들) */
+    .filter-row{display:flex;gap:6px;overflow-x:auto;scrollbar-width:none;padding-bottom:8px;align-items:center;flex-wrap:nowrap}
+    .filter-row::-webkit-scrollbar{display:none}
+    .filter-row-label{font-size:11px;color:rgba(255,255,255,0.85);font-weight:700;flex-shrink:0;margin-right:4px;white-space:nowrap;display:inline-flex;align-items:center;gap:3px}
+    /* 다중선택 칩 (카테고리/분위기) - 노란색으로 선택 표시 */
+    .mood-chip-btn{flex-shrink:0;padding:5px 13px;border-radius:100px;border:1.5px solid rgba(255,255,255,0.25);background:rgba(255,255,255,0.1);font-size:12px;font-weight:600;color:rgba(255,255,255,0.85);cursor:pointer;white-space:nowrap;font-family:inherit;transition:all 0.15s}
+    .mood-chip-btn:active{transform:scale(0.96)}
+    .mood-chip-btn.active{background:var(--yellow);border-color:var(--yellow);color:var(--green2);font-weight:800}
+    /* 필터 초기화 버튼 */
+    .filter-reset-row{display:flex;justify-content:flex-start;padding:2px 0 8px}
+    .filter-reset-btn{background:rgba(255,255,255,0.15);border:1px solid rgba(255,255,255,0.25);color:white;font-size:11px;font-weight:700;padding:5px 11px;border-radius:100px;cursor:pointer;font-family:inherit;display:inline-flex;align-items:center;gap:3px;transition:all 0.15s}
+    .filter-reset-btn:hover{background:rgba(255,255,255,0.25)}
+    .filter-reset-btn:active{transform:scale(0.96)}
+    .half-star{color:var(--yellow2);font-weight:900}
+    .card-r2 .mood-tag{display:inline-block;padding:1px 7px;background:var(--green-lt);color:var(--green);border-radius:100px;font-size:10px;font-weight:700;margin-right:3px}
+    .card-r2 .time-tag{display:inline-block;padding:1px 7px;background:#FFF4D6;color:#8A6500;border-radius:100px;font-size:10px;font-weight:700;margin-right:3px}
+
     .search-input{width:100%;padding:8px 14px 8px 34px;border:none;border-radius:10px;font-size:13px;font-family:inherit;background:rgba(255,255,255,0.15);color:white;outline:none}
     .search-input::placeholder{color:rgba(255,255,255,0.5)}
     .search-input:focus{background:rgba(255,255,255,0.25)}
@@ -870,7 +887,16 @@ svg.leaflet-image-layer.leaflet-interactive path {
     <input class="search-input" id="search-input" type="text" placeholder="식당명, 메뉴 검색...">
     <button class="search-clear" id="search-clear" onclick="clearSearch()">✕</button>
   </div>
-  <div class="filter-scroll" id="filter-bar"></div>
+  <!-- 초기화 버튼 -->
+  <div class="filter-reset-row">
+    <button class="filter-reset-btn" onclick="resetAllFilters()">↻ 선택 초기화</button>
+  </div>
+  <!-- 운영시간대 필터 (택1) -->
+  <div class="filter-row" id="time-filter"></div>
+  <!-- 카테고리 필터 (복수선택) -->
+  <div class="filter-row" id="cat-filter"></div>
+  <!-- 분위기 필터 (복수선택) -->
+  <div class="filter-row" id="mood-filter"></div>
 </div>
 
 <!-- MAIN -->
@@ -1036,6 +1062,14 @@ svg.leaflet-image-layer.leaflet-interactive path {
 // ══════════════════════════════════════
 // STATE
 // ══════════════════════════════════════
+function renderStars(rating){
+  const r = parseFloat(rating) || 0;
+  const full = Math.floor(r);
+  const half = (r - full) >= 0.5;
+  let s = '★'.repeat(full);
+  if(half) s += '☆';  // half star indicator
+  return s;
+}
 const CAT_EMOJI = {'한식':'🍚','중식':'🥢','일식':'🍣','양식':'🍝','분식':'🥙','고기':'🥩','해산물':'🦞','아시안':'🌏','카페':'☕','기타':'🍽️'};
 const emo = c => CAT_EMOJI[c] || '🍽️';
 
@@ -1091,21 +1125,14 @@ window.addEventListener('DOMContentLoaded', async () => {
   });
 
   function applySearch(){
-    const base = curCat==='전체'?restaurants:restaurants.filter(r=>r.카테고리===curCat);
-    const filtered = searchQuery
-      ? base.filter(r=>(r.이름+r.메뉴+r.한줄평).includes(searchQuery))
-      : base;
     minPrice=0; maxPrice=0;
-    renderList(filtered);
-    const pinned = filtered.filter(r=>locs[r.id]);
-    // switch to list view if on map
-    if(curView==='map') switchView('list');
-    else renderMarkers();
+    if(curView==='map' && searchQuery) switchView('list');
+    applyAllFilters();
   }
 
   setTimeout(() => {
     document.getElementById('splash').classList.add('hide');
-    buildChips(); renderList(restaurants);
+    buildTimeFilter(); buildMoodFilter(); buildChips(); applyAllFilters();
     document.getElementById('hdr-count').textContent = `· ${restaurants.length}곳`;
     initMap();
   }, 1500);
@@ -1141,15 +1168,15 @@ function initMap(){
   renderMarkers();
 }
 
-function renderMarkers(){
+function renderMarkers(customList){
   markers.forEach(m => m.remove()); markers = [];
   if(!leafMap) return;
-  const list = curCat==='전체' ? restaurants : restaurants.filter(r=>r.카테고리===curCat);
+  const list = customList || (curCat==='전체' ? restaurants : restaurants.filter(r=>r.카테고리===curCat));
   list.forEach(r => {
     const loc = locs[r.id]; if(!loc) return;
     const el = document.createElement('div');
     el.className = 'map-pin';
-    el.innerHTML = `<span class="pin-emoji">${emo(r.카테고리)}</span><span class="pin-name">${r.이름}</span><span class="pin-stars">${'★'.repeat(r.별점||0)}</span>`;
+    el.innerHTML = `<span class="pin-emoji">${emo(r.카테고리)}</span><span class="pin-name">${r.이름}</span><span class="pin-stars">${renderStars(r.별점)}</span>`;
     el.addEventListener('click', ()=>openSheet(r));
     const icon = L.divIcon({html:el, className:'', iconAnchor:[0,0]});
     const m = L.marker([loc.lat, loc.lng], {icon}).addTo(leafMap);
@@ -1161,35 +1188,155 @@ function renderMarkers(){
 // FILTER & RENDER
 // ══════════════════════════════════════
 function buildChips(){
-  const cats = ['전체', ...new Set(restaurants.map(r=>r.카테고리))];
-  const bar = document.getElementById('filter-bar'); bar.innerHTML='';
-  cats.forEach(cat=>{
-    const d = document.createElement('div');
-    d.className = 'chip' + (cat===curCat?' active':'');
-    d.onclick = ()=>filterCat(cat,d);
-    d.textContent = cat==='전체'?'전체':`${emo(cat)} ${cat}`;
-    bar.appendChild(d);
+  const bar = document.getElementById('cat-filter'); if(!bar) return;
+  bar.innerHTML='';
+  const label = document.createElement('span');
+  label.className = 'filter-row-label';
+  label.innerHTML = '🍽️ 카테고리';
+  bar.appendChild(label);
+
+  // "전체" 칩 (다른 거 아무것도 선택 안 되었을 때만 활성)
+  const allBtn = document.createElement('button');
+  allBtn.className = 'mood-chip-btn' + (selectedCats.size===0 ? ' active' : '');
+  allBtn.textContent = '전체';
+  allBtn.onclick = ()=>{
+    selectedCats.clear();
+    buildChips(); applyAllFilters();
+  };
+  bar.appendChild(allBtn);
+
+  // 카테고리별 칩
+  CAT_OPTIONS.forEach(cat=>{
+    const btn = document.createElement('button');
+    btn.className = 'mood-chip-btn' + (selectedCats.has(cat) ? ' active' : '');
+    btn.textContent = `${emo(cat)} ${cat}`;
+    btn.onclick = ()=>{
+      if(selectedCats.has(cat)) selectedCats.delete(cat);
+      else selectedCats.add(cat);
+      buildChips(); applyAllFilters();
+    };
+    bar.appendChild(btn);
   });
 }
 
 function filterCat(cat,el){
-  curCat=cat;
-  document.querySelectorAll('.chip').forEach(c=>c.classList.remove('active'));
-  el.classList.add('active');
-  maxPrice=0;
-  const list = cat==='전체'?restaurants:restaurants.filter(r=>r.카테고리===cat);
-  renderList(list); renderMarkers();
+  // 복수선택 카테고리로 바뀌어서 더이상 사용 안 함 (호환성 유지용)
+  minPrice=0; maxPrice=0;
+  applyAllFilters();
+}
+
+function resetAllFilters(){
+  curTime = '점심';
+  selectedCats.clear();
+  selectedMoods.clear();
+  searchQuery = '';
+  minPrice = 0; maxPrice = 0;
+  const si = document.getElementById('search-input');
+  if(si) si.value='';
+  const sc = document.getElementById('search-clear');
+  if(sc) sc.style.display='none';
+  buildTimeFilter();
+  buildChips();
+  buildMoodFilter();
+  applyAllFilters();
+  showToast('필터 초기화 완료 ↻');
+}
+
+function buildTimeFilter(){
+  const bar = document.getElementById('time-filter'); if(!bar) return;
+  bar.innerHTML='';
+  const label = document.createElement('span');
+  label.className = 'filter-row-label'; 
+  label.innerHTML = '⏰ 운영시간';
+  bar.appendChild(label);
+  TIME_OPTIONS.forEach(t=>{
+    const d=document.createElement('div');
+    d.className='chip'+(t===curTime?' active':'');
+    d.textContent=t;
+    d.onclick=()=>{ curTime=t; buildTimeFilter(); applyAllFilters(); };
+    bar.appendChild(d);
+  });
+}
+
+function buildMoodFilter(){
+  const bar = document.getElementById('mood-filter'); if(!bar) return;
+  bar.innerHTML='';
+  const label = document.createElement('span');
+  label.className = 'filter-row-label';
+  label.innerHTML = '🎭 분위기';
+  bar.appendChild(label);
+
+  // "전체" 칩 (분위기 아무것도 선택 안 된 상태가 기본)
+  const allBtn = document.createElement('button');
+  allBtn.className = 'mood-chip-btn' + (selectedMoods.size===0 ? ' active' : '');
+  allBtn.textContent = '전체';
+  allBtn.onclick = ()=>{
+    selectedMoods.clear();
+    buildMoodFilter(); applyAllFilters();
+  };
+  bar.appendChild(allBtn);
+
+  MOOD_OPTIONS.forEach(m=>{
+    const btn=document.createElement('button');
+    btn.className='mood-chip-btn'+(selectedMoods.has(m)?' active':'');
+    btn.textContent=m;
+    btn.onclick=()=>{
+      if(selectedMoods.has(m)) selectedMoods.delete(m);
+      else selectedMoods.add(m);
+      buildMoodFilter(); applyAllFilters();
+    };
+    bar.appendChild(btn);
+  });
+}
+
+function applyAllFilters(){
+  const sq = searchQuery||'';
+  const filtered = restaurants.filter(r=>{
+    // 카테고리 필터 (복수 OR)
+    if(selectedCats.size > 0 && !selectedCats.has(r.카테고리)) return false;
+    // 운영시간대
+    if(curTime !== '전체') {
+      const rt = r.운영시간대 || '점심&저녁';
+      if(curTime === '점심' || curTime === '저녁') {
+        if(rt !== curTime && rt !== '점심&저녁') return false;
+      } else if(curTime === '점심&저녁') {
+        if(rt !== '점심&저녁') return false;
+      }
+    }
+    // 분위기 (복수 OR)
+    if(selectedMoods.size > 0) {
+      const rMoods = Array.isArray(r.분위기) ? r.분위기 : [];
+      if(![...selectedMoods].some(m => rMoods.includes(m))) return false;
+    }
+    // 검색어
+    if(sq && !(r.이름+r.메뉴+r.한줄평+(r.비고||'')).includes(sq)) return false;
+    return true;
+  });
+  renderList(filtered);
+  renderMarkers(filtered);
 }
 
 let curSort = 'rating';
+function recCount(r){
+  const s = (r.추천인||'').toString().replace(/외\s*\d+명/g,'').trim();
+  if(!s) return 0;
+  return s.split(/[,、]/).map(x=>x.trim()).filter(Boolean).length;
+}
 const SORTS = [
-  {key:'rating',     label:'⭐ 별점순',     fn:(a,b)=>(parseFloat(b.별점)||0)-(parseFloat(a.별점)||0)},
-  {key:'price_asc',  label:'💰 가격 낮은순', fn:(a,b)=>{const d=priceNum(a.가격)-priceNum(b.가격);return d!==0?d:a.이름.localeCompare(b.이름,'ko');}},
-  {key:'price_desc', label:'💸 가격 높은순', fn:(a,b)=>{const d=priceNum(b.가격)-priceNum(a.가격);return d!==0?d:a.이름.localeCompare(b.이름,'ko');}},
+  {key:'rating',     label:'⭐ 별점순',        fn:(a,b)=>(parseFloat(b.별점)||0)-(parseFloat(a.별점)||0)},
+  {key:'price_asc',  label:'💰 가격 낮은순',   fn:(a,b)=>{const d=priceNum(a.가격)-priceNum(b.가격);return d!==0?d:a.이름.localeCompare(b.이름,'ko');}},
+  {key:'price_desc', label:'💸 가격 높은순',   fn:(a,b)=>{const d=priceNum(b.가격)-priceNum(a.가격);return d!==0?d:a.이름.localeCompare(b.이름,'ko');}},
+  {key:'rec',        label:'👥 추천인 많은순', fn:(a,b)=>recCount(b)-recCount(a)},
 ];
 let minPrice = 0;
 let maxPrice = 0; // 0 = no filter (show all)
 let searchQuery = '';
+let curTime = '점심';  // 운영시간대 기본: 점심
+let selectedCats = new Set();   // 카테고리 복수선택 (빈 Set = 전체)
+let selectedMoods = new Set();  // 분위기 복수선택 (빈 Set = 전체)
+const TIME_OPTIONS = ['전체', '점심', '저녁', '점심&저녁'];
+const CAT_OPTIONS = ['한식','중식','일식','양식','분식','고기','해산물','아시안','카페','기타'];
+const MOOD_OPTIONS = ['팀런치', '업무미팅', '혼밥', '단체회식', '소규모'];
 
 function priceNum(p){
   if(!p)return 99999;
@@ -1337,10 +1484,14 @@ function makeCard(r){
       <div class="card-name">${r.이름}</div>
       <div class="card-r1">
         <span class="cat-badge">${r.카테고리}</span>
-        <span class="stars">${'★'.repeat(r.별점||0)}</span>
+        <span class="stars">${renderStars(r.별점)}</span>
         ${r.가격?`<span class="price-tag">${r.가격}</span>`:''}
       </div>
-      <div class="card-r2">${r.메뉴?`🍽 ${r.메뉴}`:''}</div>
+      <div class="card-r2" style="display:flex;flex-wrap:wrap;gap:3px;align-items:center">
+        ${r.운영시간대 && r.운영시간대!=='점심&저녁' ? `<span class="time-tag">${r.운영시간대==='점심'?'🌞 점심':'🌙 저녁'}</span>`:''}
+        ${(r.분위기||[]).slice(0,3).map(m=>`<span class="mood-tag">${m}</span>`).join('')}
+      </div>
+      ${r.메뉴?`<div class="card-r2" style="margin-top:2px">🍽 ${r.메뉴}</div>`:''}
       ${r.추천인?`<div class="card-r2" style="margin-top:2px">👤 추천인 : ${r.추천인}</div>`:''}
       ${r.한줄평?`<div class="card-quote">"${r.한줄평}"</div>`:''}
     </div>
@@ -1466,8 +1617,7 @@ function clearSearch(){
   document.getElementById('search-input').value='';
   document.getElementById('search-clear').style.display='none';
   minPrice=0; maxPrice=0;
-  const list=curCat==='전체'?restaurants:restaurants.filter(r=>r.카테고리===curCat);
-  renderList(list);
+  applyAllFilters();
 }
 
 function openAdmin(){document.getElementById('admin-panel').classList.add('show');}
