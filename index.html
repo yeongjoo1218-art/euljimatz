@@ -1226,7 +1226,7 @@ function filterCat(cat,el){
 }
 
 function resetAllFilters(){
-  curTime = '점심';
+  curTime = '전체';
   selectedCats.clear();
   selectedMoods.clear();
   searchQuery = '';
@@ -1294,14 +1294,11 @@ function applyAllFilters(){
   const filtered = restaurants.filter(r=>{
     // 카테고리 필터 (복수 OR)
     if(selectedCats.size > 0 && !selectedCats.has(r.카테고리)) return false;
-    // 운영시간대
+    // 운영시간대: 전체(필터X) / 점심(점심or점심&저녁) / 저녁(저녁or점심&저녁)
     if(curTime !== '전체') {
       const rt = r.운영시간대 || '점심&저녁';
-      if(curTime === '점심' || curTime === '저녁') {
-        if(rt !== curTime && rt !== '점심&저녁') return false;
-      } else if(curTime === '점심&저녁') {
-        if(rt !== '점심&저녁') return false;
-      }
+      if(curTime === '점심' && rt !== '점심' && rt !== '점심&저녁') return false;
+      if(curTime === '저녁' && rt !== '저녁' && rt !== '점심&저녁') return false;
     }
     // 분위기 (복수 OR)
     if(selectedMoods.size > 0) {
@@ -1331,10 +1328,10 @@ const SORTS = [
 let minPrice = 0;
 let maxPrice = 0; // 0 = no filter (show all)
 let searchQuery = '';
-let curTime = '점심';  // 운영시간대 기본: 점심
+let curTime = '전체';  // 운영시간대 기본: 전체
 let selectedCats = new Set();   // 카테고리 복수선택 (빈 Set = 전체)
 let selectedMoods = new Set();  // 분위기 복수선택 (빈 Set = 전체)
-const TIME_OPTIONS = ['전체', '점심', '저녁', '점심&저녁'];
+const TIME_OPTIONS = ['전체', '점심', '저녁'];
 const CAT_OPTIONS = ['한식','양식','중식','일식','아시안','분식','패스트푸드','카페/디저트','샐러드/건강식','기타'];
 const MOOD_OPTIONS = ['팀런치', '업무미팅', '혼밥', '단체회식', '소규모'];
 
