@@ -1070,7 +1070,7 @@ function renderStars(rating){
   if(half) s += '☆';  // half star indicator
   return s;
 }
-const CAT_EMOJI = {'한식':'🍚','중식':'🥢','일식':'🍣','양식':'🍝','분식':'🥙','고기':'🥩','해산물':'🦞','아시안':'🌏','카페':'☕','기타':'🍽️'};
+const CAT_EMOJI = {'한식':'🍚','양식':'🍝','중식':'🥢','일식':'🍣','아시안':'🌏','분식':'🥙','패스트푸드':'🍔','카페/디저트':'☕','샐러드/건강식':'🥗','기타':'🍽️'};
 const emo = c => CAT_EMOJI[c] || '🍽️';
 
 let restaurants = []; // loaded from data.json
@@ -1335,7 +1335,7 @@ let curTime = '점심';  // 운영시간대 기본: 점심
 let selectedCats = new Set();   // 카테고리 복수선택 (빈 Set = 전체)
 let selectedMoods = new Set();  // 분위기 복수선택 (빈 Set = 전체)
 const TIME_OPTIONS = ['전체', '점심', '저녁', '점심&저녁'];
-const CAT_OPTIONS = ['한식','중식','일식','양식','분식','고기','해산물','아시안','카페','기타'];
+const CAT_OPTIONS = ['한식','양식','중식','일식','아시안','분식','패스트푸드','카페/디저트','샐러드/건강식','기타'];
 const MOOD_OPTIONS = ['팀런치', '업무미팅', '혼밥', '단체회식', '소규모'];
 
 function priceNum(p){
