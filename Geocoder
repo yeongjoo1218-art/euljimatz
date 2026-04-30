@@ -1,0 +1,199 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<title>위경도 자동 검색기</title>
+<script src="https://dapi.kakao.com/v2/maps/sdk.js?appkey=2428303d695d8ec2dca4acbe232ee049&libraries=services&autoload=false"></script>
+<style>
+  body{font-family:'Apple SD Gothic Neo','Malgun Gothic',sans-serif;max-width:1100px;margin:30px auto;padding:20px;background:#F4FAF4;color:#1A2E1A}
+  h1{color:#2D6A2F;margin-bottom:8px}
+  .sub{color:#6B8F6B;margin-bottom:20px;font-size:14px}
+  .input-area{background:white;border:2px solid #D4E8D4;border-radius:14px;padding:20px;margin-bottom:20px}
+  textarea{width:100%;min-height:200px;padding:12px;border:1.5px solid #D4E8D4;border-radius:10px;font-family:inherit;font-size:13px;resize:vertical;box-sizing:border-box}
+  .btns{display:flex;gap:8px;margin-top:12px;flex-wrap:wrap}
+  button{padding:12px 22px;border:none;border-radius:10px;font-weight:700;cursor:pointer;font-size:14px}
+  .btn-pr{background:#2D6A2F;color:white}
+  .btn-pr:hover{background:#1E4D20}
+  .btn-pr:disabled{background:#9CC09C;cursor:not-allowed}
+  .btn-ol{background:white;border:1.5px solid #D4E8D4;color:#1A2E1A}
+  .results{background:white;border:2px solid #D4E8D4;border-radius:14px;padding:20px;margin-bottom:20px}
+  table{width:100%;border-collapse:collapse;font-size:13px}
+  th{background:#EBF4EB;padding:10px;text-align:left;font-weight:700;color:#1E4D20;font-size:12px}
+  td{padding:10px;border-bottom:1px solid #EBF4EB;vertical-align:top}
+  tr.ok{background:#F0FAF0}
+  tr.fail{background:#FEF0F0}
+  .badge{padding:3px 8px;border-radius:6px;font-size:11px;font-weight:700}
+  .badge-ok{background:#2D6A2F;color:white}
+  .badge-fail{background:#D32F2F;color:white}
+  .coord{font-family:monospace;font-size:12px;color:#2D6A2F}
+  .addr{font-size:11px;color:#6B8F6B;margin-top:3px}
+  .editable{padding:4px 6px;border:1px solid #D4E8D4;border-radius:5px;font-size:12px;width:90px;font-family:monospace}
+  .progress{font-size:13px;color:#2D6A2F;font-weight:700;margin-top:10px}
+  .output-area{background:white;border:2px solid #D4E8D4;border-radius:14px;padding:20px}
+  pre{background:#F4FAF4;padding:14px;border-radius:8px;overflow:auto;max-height:400px;font-size:11px;white-space:pre-wrap;word-break:break-all}
+  .hint{background:#FFF9E6;border-left:4px solid #F5C842;padding:12px 14px;margin:10px 0;border-radius:6px;font-size:13px;line-height:1.6}
+</style>
+</head>
+<body>
+
+<h1>📍 위경도 자동 검색기</h1>
+<div class="sub">식당명으로 카카오 API에서 좌표를 자동으로 가져옵니다</div>
+
+<div class="hint">
+  <strong>사용법</strong><br>
+  1. 아래에 현재 data.json 내용 붙여넣기<br>
+  2. <strong>"검색 시작"</strong> 클릭<br>
+  3. 결과 확인 (틀린 좌표 있으면 직접 수정 가능)<br>
+  4. <strong>"data.json 생성"</strong> 클릭 → 복사 → GitHub 업로드
+</div>
+
+<div class="input-area">
+  <h3 style="margin:0 0 10px;color:#1E4D20">1️⃣ 현재 data.json 붙여넣기</h3>
+  <textarea id="input" placeholder='[{"이름":"본가원조닭한마리", ...}, ...]'></textarea>
+  <div class="btns">
+    <button class="btn-pr" id="search-btn" onclick="searchAll()">🔍 검색 시작</button>
+    <button class="btn-ol" onclick="document.getElementById('input').value=''">초기화</button>
+  </div>
+  <div class="progress" id="progress"></div>
+</div>
+
+<div class="results" id="results-area" style="display:none">
+  <h3 style="margin:0 0 10px;color:#1E4D20">2️⃣ 검색 결과 <span style="font-size:13px;color:#6B8F6B;font-weight:400">(틀린 좌표는 직접 수정 가능)</span></h3>
+  <table id="results-table"></table>
+</div>
+
+<div class="output-area" id="output-area" style="display:none">
+  <h3 style="margin:0 0 10px;color:#1E4D20">3️⃣ 새 data.json</h3>
+  <div class="btns" style="margin-bottom:10px">
+    <button class="btn-pr" onclick="generateOutput()">📋 data.json 생성</button>
+    <button class="btn-ol" onclick="copyOutput()">복사하기</button>
+  </div>
+  <pre id="output"></pre>
+</div>
+
+<script>
+let restaurants = [];
+let geocoder = null;
+let places = null;
+
+kakao.maps.load(() => {
+  geocoder = new kakao.maps.services.Geocoder();
+  places = new kakao.maps.services.Places();
+  console.log('Kakao SDK loaded');
+});
+
+async function searchAll() {
+  const input = document.getElementById('input').value.trim();
+  if(!input) { alert('data.json 내용을 붙여넣어 주세요'); return; }
+  
+  try {
+    restaurants = JSON.parse(input);
+  } catch(e) {
+    alert('JSON 형식 오류: ' + e.message); return;
+  }
+  
+  if(!Array.isArray(restaurants)) { alert('배열 형식이어야 합니다'); return; }
+  
+  document.getElementById('search-btn').disabled = true;
+  document.getElementById('results-area').style.display = 'block';
+  document.getElementById('output-area').style.display = 'block';
+  
+  const tbl = document.getElementById('results-table');
+  tbl.innerHTML = `<tr><th>#</th><th>식당명</th><th>상태</th><th>위도</th><th>경도</th><th>매칭된 주소</th></tr>`;
+  
+  let okCount = 0;
+  for(let i=0; i<restaurants.length; i++) {
+    const r = restaurants[i];
+    document.getElementById('progress').textContent = `검색 중... ${i+1} / ${restaurants.length} : ${r.이름}`;
+    
+    const result = await searchPlace(r.이름);
+    
+    const tr = document.createElement('tr');
+    tr.className = result.success ? 'ok' : 'fail';
+    
+    if(result.success) {
+      okCount++;
+      restaurants[i].위도 = result.lat;
+      restaurants[i].경도 = result.lng;
+      tr.innerHTML = `
+        <td>${i+1}</td>
+        <td><strong>${r.이름}</strong></td>
+        <td><span class="badge badge-ok">✓</span></td>
+        <td><input type="text" class="editable" data-idx="${i}" data-field="lat" value="${result.lat}" onchange="updateCoord(this)"></td>
+        <td><input type="text" class="editable" data-idx="${i}" data-field="lng" value="${result.lng}" onchange="updateCoord(this)"></td>
+        <td><div>${result.placeName||''}</div><div class="addr">${result.address}</div></td>
+      `;
+    } else {
+      tr.innerHTML = `
+        <td>${i+1}</td>
+        <td><strong>${r.이름}</strong></td>
+        <td><span class="badge badge-fail">✗</span></td>
+        <td><input type="text" class="editable" data-idx="${i}" data-field="lat" value="${r.위도||''}" onchange="updateCoord(this)" placeholder="수동입력"></td>
+        <td><input type="text" class="editable" data-idx="${i}" data-field="lng" value="${r.경도||''}" onchange="updateCoord(this)" placeholder="수동입력"></td>
+        <td style="color:#D32F2F;font-size:12px">검색 결과 없음 — 직접 입력 필요</td>
+      `;
+    }
+    tbl.appendChild(tr);
+    
+    // API 호출 텀
+    await new Promise(r => setTimeout(r, 300));
+  }
+  
+  document.getElementById('progress').innerHTML = `✅ 완료! 성공: <strong>${okCount}</strong> / ${restaurants.length}`;
+  document.getElementById('search-btn').disabled = false;
+  generateOutput();
+}
+
+function searchPlace(name) {
+  return new Promise(resolve => {
+    if(!places) { resolve({success:false}); return; }
+    
+    // 식당명에 "을지로", "충무로" 같은 동네명 자동 추가하면 매칭률 높아짐
+    const queries = [name + ' 을지로', name + ' 중구', name];
+    
+    let tried = 0;
+    function tryNext() {
+      if(tried >= queries.length) { resolve({success:false}); return; }
+      const q = queries[tried++];
+      places.keywordSearch(q, (data, status) => {
+        if(status === kakao.maps.services.Status.OK && data.length > 0) {
+          // 가장 첫 결과 사용 (을지로 근처가 우선)
+          const p = data[0];
+          resolve({
+            success: true,
+            lat: parseFloat(p.y).toFixed(7),
+            lng: parseFloat(p.x).toFixed(7),
+            placeName: p.place_name,
+            address: p.road_address_name || p.address_name
+          });
+        } else {
+          tryNext();
+        }
+      });
+    }
+    tryNext();
+  });
+}
+
+function updateCoord(input) {
+  const idx = parseInt(input.dataset.idx);
+  const field = input.dataset.field;
+  const val = input.value.trim();
+  if(field === 'lat') restaurants[idx].위도 = val;
+  if(field === 'lng') restaurants[idx].경도 = val;
+  generateOutput();
+}
+
+function generateOutput() {
+  document.getElementById('output').textContent = JSON.stringify(restaurants, null, 2);
+}
+
+function copyOutput() {
+  const text = document.getElementById('output').textContent;
+  navigator.clipboard.writeText(text).then(()=>{
+    alert('복사 완료! GitHub의 data.json에 붙여넣으세요.');
+  });
+}
+</script>
+</body>
+</html>
