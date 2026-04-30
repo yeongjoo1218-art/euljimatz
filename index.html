@@ -869,7 +869,16 @@ function renderFavs(){
 // ══════════════════════════════════════
 function toggleFav(id,btn){
   favs.has(id)?favs.delete(id):favs.add(id);
-  if(btn) btn.textContent = favs.has(id)?'⭐':'🤍';
+  const isFav = favs.has(id);
+  // 모든 탭의 같은 식당 하트 동기화 (목록 + 즐겨찾기 탭 모두)
+  document.querySelectorAll('.card-fav').forEach(b=>{
+    if(b.dataset.id===id) b.textContent = isFav?'⭐':'🤍';
+  });
+  // 상세 시트가 열려있고 같은 식당이면 시트 하트도 동기화
+  if(curSheet && curSheet.id===id){
+    const shFav = document.getElementById('sh-fav');
+    if(shFav) shFav.textContent = isFav?'⭐':'🤍';
+  }
   localStorage.setItem('lm5_favs', JSON.stringify([...favs]));
   renderFavs();
 }
